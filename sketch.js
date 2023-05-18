@@ -1,11 +1,35 @@
 //Windows cmd in project directory: dir /a-d /s /b > soundlist.txt
 //REMEMBER to take the soundlist.txt file itself OFF of the list!
 
+soundLoadSuccessCallback = ()=> {
+  loadedSoundCount ++;
+  if(loadedSoundCount == soundPaths.length)onLoadComplete();
+}
+
+function setURLToUserSettings(){
+  window.history.replaceState({additionalInformation:"Updated URL with JS"}, "", "?" + JSON.stringify(userSettings));
+}
+
+function getUserSettingsFromURL(){
+  let url = window.location.href
+  let lastSlashIndex = url.lastIndexOf("/")
+  if(lastSlashIndex >= 6 && lastSlashIndex < url.length - 1){
+    let grabbedData = decodeURI(url.substring(lastSlashIndex + 1))
+    try {
+      return JSON.parse(grabbedData.substring(1))
+    } catch(error) {
+      return null
+    }
+  } else {
+    return null
+  }
+}
+
 function preload(){
-  currentVersion = 1;
+  currentVersion = 3;
 
   soundList = loadStrings("sounds/soundlist.txt")
-  userSettingsCookie = getCookie("userSettings")
+  userSettingsFromURL = getUserSettingsFromURL();
   completeSound = loadSound("complete.mp3")
 
   icons = {
@@ -36,13 +60,18 @@ function setup(){
       soundPaths[soundPath] = soundPath
     }
   }
-
-  soundsObject = {}
-
-  myLoader = new FileLoader(soundPaths, soundsObject, true)
-
   soundPaths = Object.keys(soundPaths)
+
+  loadedSoundCount = 0;
   
+  soundsObject = {}
+  for(i in soundPaths){
+    let newAudio = document.createElement("AUDIO")
+    newAudio.setAttribute("src", soundPaths[i])
+    newAudio.onloadeddata = soundLoadSuccessCallback
+    soundsObject[ soundPaths[i] ] = newAudio
+  }
+
   minAllowedInterval = 2; //seconds
   maxAllowedInterval = 60;
 
@@ -59,9 +88,9 @@ function setup(){
 
   playColorTimer = 0;
 
-  if(userSettingsCookie == '' || !userSettingsCookie.includes('"version":' + currentVersion)){
-    //There is no cookie yet for user settings
-    console.log("Setting cookie for the first time")
+  if(userSettingsFromURL == null || userSettingsFromURL.version !== currentVersion){
+    //Initialize user settings
+    console.log("Setting user settings for the first time")
     userSettings = {
       timeRemaining: 5 * 60, //seconds
       version: currentVersion,
@@ -75,11 +104,11 @@ function setup(){
         maxInterval: 20
       }
       userSettings[category] = categorySettings
-      setCookie( "userSettings", JSON.stringify(userSettings) )
+      setURLToUserSettings();
     }
   } else {
-    userSettings = JSON.parse(userSettingsCookie)
-    console.log("Retrieved cookie: " + userSettingsCookie)
+    userSettings = userSettingsFromURL
+    console.log("Retrieved settings: " + userSettings)
   }
 
   timeRemaining = userSettings.timeRemaining; // seconds
@@ -96,7 +125,7 @@ function onLoadComplete(){
     if(timerRunning){
       timeRemaining --;
       if(timeRemaining == 0){
-        console.log("Time's up")
+        //console.log("Time's up")
         timerRunning = false;
         soundEnabled = false;
         stopAllSounds();
@@ -109,7 +138,7 @@ function onLoadComplete(){
   for(let sound in soundsObject){
     let category = sound.split("/")[1]
     let volume = userSettings[category].volume
-    soundsObject[sound].setVolume(volume)
+    soundsObject[sound].volume = volume
   }
 
   categoryTimeOfNext = {}
@@ -134,7 +163,7 @@ function draw(){
   
   icursor.update();
   
-  if(myLoader.complete){
+  if(loadedSoundCount == soundPaths.length){
     
 
     push();
@@ -186,7 +215,7 @@ function draw(){
 
   } else {
     fill(255); textAlign(CENTER); textSize(height/30);
-    text("Loading sound files...\n" + myLoader.progress + "/" + myLoader.completion, width/2, height/2)
+    text("Loading sound files...\n" + loadedSoundCount + "/" + soundPaths.length, width/2, height/2)
   }
 
   //Check if user is modifying any settings
@@ -219,7 +248,7 @@ function draw(){
             //Set all sounds in this category to have this new volume
             for(let sound in soundsObject){
               if(sound.includes(soundCategories[i])){
-                soundsObject[sound].setVolume(newVolume)
+                soundsObject[sound].volume = newVolume
               }
             }
           }
@@ -274,7 +303,8 @@ function pickNewInterval(category){
 
 function stopAllSounds(){
   for(let k in soundsObject){
-    soundsObject[k].stop()
+    soundsObject[k].pause()
+    soundsObject[k].currentTime = 0;
   }
 }
 
@@ -419,11 +449,12 @@ function cursorClick(b){
       //Start or stop the timer
       if(!timerRunning && timeRemaining > 0){
         timerRunning = true;
+        completeSound.play();
       }
       else if(timerRunning)timerRunning = false;
 
       soundEnabled = !soundEnabled;
-      console.log("Sound Enabled: " + soundEnabled)
+      //console.log("Sound Enabled: " + soundEnabled)
       playColorTimer = 0;
       if(!soundEnabled){
         stopAllSounds();
@@ -431,7 +462,7 @@ function cursorClick(b){
       if(soundEnabled){
         for(let i in soundCategories){
           pickNewInterval(soundCategories[i])
-          console.log("Setting new interval: " + soundCategories[i])
+          //console.log("Setting new interval: " + soundCategories[i])
         }
       }
     } else {
@@ -444,7 +475,8 @@ function cursorClick(b){
           if(userSettings[soundCategories[i]].muted){
             for(let j in soundPaths){
               if(soundPaths[j].includes(soundCategories[i]))
-                soundsObject[ soundPaths[j] ].stop();
+                soundsObject[ soundPaths[j] ].pause();
+                soundsObject[ soundPaths[j] ].currentTime = 0;
             }
           }
         }
@@ -471,8 +503,8 @@ function cursorPressEnd(b){
   userScrolling = false;
   userModifying = false;
   if(settingsHaveChanged){
-    setCookie("userSettings", JSON.stringify(userSettings))
+    setURLToUserSettings();
     settingsHaveChanged = false;
-    console.log("Updated cookie")
+    console.log("Updated URL to user settings")
   }
 }
